@@ -1,6 +1,12 @@
 [package]
-name = "c4_rust_team_alfaqa"
+name = "c4_rust"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "Rust implementation of the C4 compiler"
+authors = ["Meera Al Wadhi <100058524@ku.ac.ae>", "Hamda <hamdahalm@hotmail.com>"]
 
 [dependencies]
+# Add dependencies if needed (e.g., for file I/O later)
+
+[dev-dependencies]
+# For testing (optional, if you add more test frameworks)
