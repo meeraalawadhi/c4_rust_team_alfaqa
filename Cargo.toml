@@ -6,7 +6,7 @@ description = "Rust implementation of the C4 compiler"
 authors = ["Meera Al Wadhi <100058524@ku.ac.ae>", "Hamda <hamdahalm@hotmail.com>"]
 
 [dependencies]
-# Add dependencies if needed (e.g., for file I/O later)
+# Add dependencies if needed
 
 [dev-dependencies]
-# For testing (optional, if you add more test frameworks)
+# For testing

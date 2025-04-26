@@ -41,7 +41,6 @@ impl Lexer {
         self.line
     }
 
-    // Get the next token
     pub fn next(&mut self) -> Option<Token> {
         // Skip whitespace and handle newlines
         while self.pos < self.input.len() && self.input[self.pos].is_whitespace() {
@@ -59,6 +58,19 @@ impl Lexer {
         let c = self.input[self.pos];
         self.pos += 1;
 
+        // Single-line comment
+        if c == '/' && self.pos < self.input.len() && self.input[self.pos] == '/' {
+            self.pos += 1; // Skip second '/'
+            while self.pos < self.input.len() && self.input[self.pos] != '\n' {
+                self.pos += 1;
+            }
+            if self.pos < self.input.len() && self.input[self.pos] == '\n' {
+                self.line += 1;
+                self.pos += 1;
+            }
+            return self.next(); // Recurse to get next token
+        }
+
         // Identifier or keyword
         if c.is_alphabetic() || c == '_' {
             let start = self.pos - 1;
@@ -69,14 +81,38 @@ impl Lexer {
             return Some(self.keywords.get(&id).cloned().unwrap_or(Token::Id(id)));
         }
 
-        // Number (decimal only for simplicity)
+        // Number (decimal, hex, octal)
         if c.is_digit(10) {
             let start = self.pos - 1;
-            while self.pos < self.input.len() && self.input[self.pos].is_digit(10) {
+            let mut num_str = String::new();
+            num_str.push(c);
+
+            // Hexadecimal (e.g., 0xFF)
+            if c == '0' && self.pos < self.input.len() && self.input[self.pos].to_ascii_lowercase() == 'x' {
+                num_str.push(self.input[self.pos]);
                 self.pos += 1;
+                while self.pos < self.input.len() && self.input[self.pos].is_digit(16) {
+                    num_str.push(self.input[self.pos]);
+                    self.pos += 1;
+                }
+                return Some(Token::Num(i64::from_str_radix(&num_str[2..], 16).unwrap_or(0)));
             }
-            let num = self.input[start..self.pos].iter().collect::<String>();
-            return Some(Token::Num(num.parse().unwrap_or(0)));
+            // Octal (e.g., 077)
+            else if c == '0' && self.pos < self.input.len() && self.input[self.pos].is_digit(8) {
+                while self.pos < self.input.len() && self.input[self.pos].is_digit(8) {
+                    num_str.push(self.input[self.pos]);
+                    self.pos += 1;
+                }
+                return Some(Token::Num(i64::from_str_radix(&num_str[1..], 8).unwrap_or(0)));
+            }
+            // Decimal
+            else {
+                while self.pos < self.input.len() && self.input[self.pos].is_digit(10) {
+                    num_str.push(self.input[self.pos]);
+                    self.pos += 1;
+                }
+                return Some(Token::Num(num_str.parse().unwrap_or(0)));
+            }
         }
 
         // Operators (e.g., +, ==)
@@ -102,7 +138,7 @@ impl Lexer {
             }
         }
 
-        // Unknown character (error or skip)
+        // Unknown character
         None
     }
 }
@@ -150,6 +186,31 @@ mod tests {
     fn test_string() {
         let mut lexer = Lexer::new("\"hello\"");
         assert_eq!(lexer.next(), Some(Token::String("hello".to_string())));
+        assert_eq!(lexer.next(), Some(Token::Eof));
+    }
+
+    #[test]
+    fn test_comment() {
+        let mut lexer = Lexer::new("// comment\nint x");
+        assert_eq!(lexer.next(), Some(Token::Keyword("int".to_string())));
+        assert_eq!(lexer.next(), Some(Token::Id("x".to_string())));
+        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.line(), 2); // Line number after comment
+    }
+
+    #[test]
+    fn test_hex_number() {
+        let mut lexer = Lexer::new("0xFF 0x123");
+        assert_eq!(lexer.next(), Some(Token::Num(255))); // 0xFF = 255
+        assert_eq!(lexer.next(), Some(Token::Num(291))); // 0x123 = 291
+        assert_eq!(lexer.next(), Some(Token::Eof));
+    }
+
+    #[test]
+    fn test_octal_number() {
+        let mut lexer = Lexer::new("077 0123");
+        assert_eq!(lexer.next(), Some(Token::Num(63))); // 077 = 63
+        assert_eq!(lexer.next(), Some(Token::Num(83))); // 0123 = 83
         assert_eq!(lexer.next(), Some(Token::Eof));
     }
 }
