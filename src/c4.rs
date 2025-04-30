@@ -8,6 +8,7 @@ pub enum Token {
     Keyword(String),
     Op(String),
     String(String),
+    Directive(String), // New variant for #include, #define
     Eof,
 }
 
@@ -37,6 +38,7 @@ impl Lexer {
     }
 
     pub fn next(&mut self) -> Result<Token, String> {
+        // Skip whitespace and handle newlines
         while self.pos < self.input.len() && self.input[self.pos].is_whitespace() {
             if self.input[self.pos] == '\n' {
                 self.line += 1;
@@ -44,6 +46,7 @@ impl Lexer {
             self.pos += 1;
         }
 
+        // Check for end of input
         if self.pos >= self.input.len() {
             return Ok(Token::Eof);
         }
@@ -51,6 +54,7 @@ impl Lexer {
         let c = self.input[self.pos];
         self.pos += 1;
 
+        // Single-line comment
         if c == '/' && self.pos < self.input.len() && self.input[self.pos] == '/' {
             self.pos += 1;
             while self.pos < self.input.len() && self.input[self.pos] != '\n' {
@@ -63,7 +67,14 @@ impl Lexer {
             return self.next();
         }
 
+        // Preprocessor directive
         if c == '#' {
+            let start = self.pos;
+            while self.pos < self.input.len() && self.input[self.pos].is_alphabetic() {
+                self.pos += 1;
+            }
+            let directive = self.input[start..self.pos].iter().collect::<String>();
+            // Skip the rest of the line (e.g., <stdio.h> or macro body)
             while self.pos < self.input.len() && self.input[self.pos] != '\n' {
                 self.pos += 1;
             }
@@ -71,9 +82,13 @@ impl Lexer {
                 self.line += 1;
                 self.pos += 1;
             }
-            return self.next();
+            if directive.is_empty() {
+                return Err(format!("Empty preprocessor directive at line {}", self.line - 1));
+            }
+            return Ok(Token::Directive(directive));
         }
 
+        // Identifier or keyword
         if c.is_alphabetic() || c == '_' {
             let start = self.pos - 1;
             while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_') {
@@ -83,6 +98,7 @@ impl Lexer {
             return Ok(self.keywords.get(&id).cloned().unwrap_or(Token::Id(id)));
         }
 
+        // Number (decimal, hex, octal)
         if c.is_digit(10) {
             let start = self.pos - 1;
             if c == '0' && self.pos < self.input.len() && self.input[self.pos].to_ascii_lowercase() == 'x' {
@@ -109,6 +125,7 @@ impl Lexer {
             }
         }
 
+        // Operators and punctuation
         if "+-*/=<>!&|~(){};,".contains(c) {
             let mut op = c.to_string();
             if self.pos < self.input.len() {
@@ -123,6 +140,7 @@ impl Lexer {
             return Ok(Token::Op(op));
         }
 
+        // String literal with escape sequences
         if c == '"' {
             let mut s = String::new();
             while self.pos < self.input.len() && self.input[self.pos] != '"' {
@@ -161,7 +179,7 @@ impl Lexer {
 #[derive(Debug, PartialEq)]
 pub enum Expr {
     Num(i64),
-    BinOp(Box<Expr>, String, Box<Expr>), // e.g., 1 + 2
+    BinOp(Box<Expr>, String, Box<Expr>),
 }
 
 pub struct Parser {
@@ -238,7 +256,7 @@ impl Parser {
 mod tests {
     use super::*;
 
-    // Lexer tests (unchanged)
+    // Lexer tests
     #[test]
     fn test_keywords() {
         let mut lexer = Lexer::new("int if while return char");
@@ -355,6 +373,17 @@ mod tests {
     }
 
     #[test]
+    fn test_directive() {
+        let mut lexer = Lexer::new("#include <stdio.h>\n#define MAX 100\nint x");
+        assert_eq!(lexer.next(), Ok(Token::Directive("include".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Directive("define".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Keyword("int".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Id("x".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
+        assert_eq!(lexer.line(), 3);
+    }
+
+    #[test]
     fn test_c4_snippet() {
         let input = r#"
         #include <stdio.h>
@@ -369,6 +398,7 @@ mod tests {
         "#;
         let mut lexer = Lexer::new(input);
         let expected = vec![
+            Token::Directive("include".to_string()),
             Token::Keyword("int".to_string()),
             Token::Id("main".to_string()),
             Token::Op("(".to_string()),
@@ -469,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_error() {
+  fn test_parse_error() {
         let mut parser = Parser::new("1 + (2");
         let result = parser.parse_expr();
         assert!(result.is_err());
