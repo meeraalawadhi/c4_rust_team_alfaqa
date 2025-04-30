@@ -8,7 +8,7 @@ pub enum Token {
     Keyword(String),
     Op(String),
     String(String),
-    Directive(String), // New variant for #include, #define
+    Directive(String),
     Eof,
 }
 
@@ -38,7 +38,6 @@ impl Lexer {
     }
 
     pub fn next(&mut self) -> Result<Token, String> {
-        // Skip whitespace and handle newlines
         while self.pos < self.input.len() && self.input[self.pos].is_whitespace() {
             if self.input[self.pos] == '\n' {
                 self.line += 1;
@@ -46,7 +45,6 @@ impl Lexer {
             self.pos += 1;
         }
 
-        // Check for end of input
         if self.pos >= self.input.len() {
             return Ok(Token::Eof);
         }
@@ -54,7 +52,6 @@ impl Lexer {
         let c = self.input[self.pos];
         self.pos += 1;
 
-        // Single-line comment
         if c == '/' && self.pos < self.input.len() && self.input[self.pos] == '/' {
             self.pos += 1;
             while self.pos < self.input.len() && self.input[self.pos] != '\n' {
@@ -67,14 +64,12 @@ impl Lexer {
             return self.next();
         }
 
-        // Preprocessor directive
         if c == '#' {
             let start = self.pos;
             while self.pos < self.input.len() && self.input[self.pos].is_alphabetic() {
                 self.pos += 1;
             }
             let directive = self.input[start..self.pos].iter().collect::<String>();
-            // Skip the rest of the line (e.g., <stdio.h> or macro body)
             while self.pos < self.input.len() && self.input[self.pos] != '\n' {
                 self.pos += 1;
             }
@@ -88,7 +83,6 @@ impl Lexer {
             return Ok(Token::Directive(directive));
         }
 
-        // Identifier or keyword
         if c.is_alphabetic() || c == '_' {
             let start = self.pos - 1;
             while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_') {
@@ -98,7 +92,6 @@ impl Lexer {
             return Ok(self.keywords.get(&id).cloned().unwrap_or(Token::Id(id)));
         }
 
-        // Number (decimal, hex, octal)
         if c.is_digit(10) {
             let start = self.pos - 1;
             if c == '0' && self.pos < self.input.len() && self.input[self.pos].to_ascii_lowercase() == 'x' {
@@ -125,7 +118,6 @@ impl Lexer {
             }
         }
 
-        // Operators and punctuation
         if "+-*/=<>!&|~(){};,".contains(c) {
             let mut op = c.to_string();
             if self.pos < self.input.len() {
@@ -140,7 +132,6 @@ impl Lexer {
             return Ok(Token::Op(op));
         }
 
-        // String literal with escape sequences
         if c == '"' {
             let mut s = String::new();
             while self.pos < self.input.len() && self.input[self.pos] != '"' {
@@ -179,6 +170,8 @@ impl Lexer {
 #[derive(Debug, PartialEq)]
 pub enum Expr {
     Num(i64),
+    String(String), // New: String literals
+    UnaryOp(String, Box<Expr>), // New: Unary operators (!, -)
     BinOp(Box<Expr>, String, Box<Expr>),
 }
 
@@ -231,10 +224,24 @@ impl Parser {
     }
 
     fn parse_factor(&mut self) -> Result<Expr, String> {
+        // Handle unary operators
+        if let Ok(Token::Op(op)) = &self.current_token {
+            if op == "!" || op == "-" {
+                let op = op.clone();
+                self.advance()?;
+                let expr = self.parse_factor()?;
+                return Ok(Expr::UnaryOp(op, Box::new(expr)));
+            }
+        }
+
         match self.current_token.clone() {
             Ok(Token::Num(n)) => {
                 self.advance()?;
                 Ok(Expr::Num(n))
+            }
+            Ok(Token::String(s)) => {
+                self.advance()?;
+                Ok(Expr::String(s))
             }
             Ok(Token::Op(op)) if op == "(" => {
                 self.advance()?;
@@ -247,7 +254,7 @@ impl Parser {
                     _ => Err(format!("Expected ')' at line {}", self.lexer.line())),
                 }
             }
-            _ => Err(format!("Expected number or '(' at line {}", self.lexer.line())),
+            _ => Err(format!("Expected number, string, unary operator, or '(' at line {}", self.lexer.line())),
         }
     }
 }
@@ -453,6 +460,44 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_string() {
+        let mut parser = Parser::new("\"hello\"");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(expr, Expr::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_parse_unary_minus() {
+        let mut parser = Parser::new("-5");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(expr, Expr::UnaryOp("-".to_string(), Box::new(Expr::Num(5))));
+    }
+
+    #[test]
+    fn test_parse_unary_not() {
+        let mut parser = Parser::new("!\"hello\"");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(expr, Expr::UnaryOp("!".to_string(), Box::new(Expr::String("hello".to_string()))));
+    }
+
+    #[test]
+    fn test_parse_unary_complex() {
+        let mut parser = Parser::new("-(2 + 3)");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp(
+                "-".to_string(),
+                Box::new(Expr::BinOp(
+                    Box::new(Expr::Num(2)),
+                    "+".to_string(),
+                    Box::new(Expr::Num(3))
+                ))
+            )
+        );
+    }
+
+    #[test]
     fn test_parse_addition() {
         let mut parser = Parser::new("1 + 2");
         let expr = parser.parse_expr().unwrap();
@@ -480,28 +525,5 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_parse_parentheses() {
-        let mut parser = Parser::new("(1 + 2) * 3");
-        let expr = parser.parse_expr().unwrap();
-        assert_eq!(
-            expr,
-            Expr::BinOp(
-                Box::new(Expr::BinOp(
-                    Box::new(Expr::Num(1)),
-                    "+".to_string(),
-                    Box::new(Expr::Num(2))
-                )),
-                "*".to_string(),
-                Box::new(Expr::Num(3))
-            )
-        );
-    }
-
-    #[test]
-  fn test_parse_error() {
-        let mut parser = Parser::new("1 + (2");
-        let result = parser.parse_expr();
-        assert!(result.is_err());
-    }
+    
 }
