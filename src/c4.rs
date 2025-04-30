@@ -21,7 +21,7 @@ pub struct Lexer {
 impl Lexer {
     pub fn new(input: &str) -> Self {
         let mut keywords = HashMap::new();
-        for kw in ["int", "if", "while", "return"].iter() {
+        for kw in ["int", "if", "while", "return", "char"].iter() {
             keywords.insert(kw.to_string(), Token::Keyword(kw.to_string()));
         }
         Lexer {
@@ -36,7 +36,7 @@ impl Lexer {
         self.line
     }
 
-    pub fn next(&mut self) -> Option<Token> {
+    pub fn next(&mut self) -> Result<Token, String> {
         // Skip whitespace and handle newlines
         while self.pos < self.input.len() && self.input[self.pos].is_whitespace() {
             if self.input[self.pos] == '\n' {
@@ -47,7 +47,7 @@ impl Lexer {
 
         // Check for end of input
         if self.pos >= self.input.len() {
-            return Some(Token::Eof);
+            return Ok(Token::Eof);
         }
 
         let c = self.input[self.pos];
@@ -66,41 +66,52 @@ impl Lexer {
             return self.next();
         }
 
+        // Preprocessor directive (temporary skip)
+        if c == '#' {
+            while self.pos < self.input.len() && self.input[self.pos] != '\n' {
+                self.pos += 1;
+            }
+            if self.pos < self.input.len() && self.input[self.pos] == '\n' {
+                self.line += 1;
+                self.pos += 1;
+            }
+            return self.next();
+        }
+
         // Identifier or keyword
         if c.is_alphabetic() || c == '_' {
-            let start = self.pos - 1; // Renamed from _start
+            let start = self.pos - 1;
             while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_') {
                 self.pos += 1;
             }
             let id = self.input[start..self.pos].iter().collect::<String>();
-            return Some(self.keywords.get(&id).cloned().unwrap_or(Token::Id(id)));
+            return Ok(self.keywords.get(&id).cloned().unwrap_or(Token::Id(id)));
         }
 
         // Number (decimal, hex, octal)
         if c.is_digit(10) {
             let start = self.pos - 1;
-            let mut num_str = String::new();
-            num_str.push(c);
             if c == '0' && self.pos < self.input.len() && self.input[self.pos].to_ascii_lowercase() == 'x' {
-                num_str.push(self.input[self.pos]);
                 self.pos += 1;
+                let hex_start = self.pos;
                 while self.pos < self.input.len() && self.input[self.pos].is_digit(16) {
-                    num_str.push(self.input[self.pos]);
                     self.pos += 1;
                 }
-                return Some(Token::Num(i64::from_str_radix(&num_str[2..], 16).unwrap_or(0)));
+                let hex_str = self.input[hex_start..self.pos].iter().collect::<String>();
+                return Ok(Token::Num(i64::from_str_radix(&hex_str, 16).unwrap_or(0)));
             } else if c == '0' && self.pos < self.input.len() && self.input[self.pos].is_digit(8) {
+                let octal_start = self.pos;
                 while self.pos < self.input.len() && self.input[self.pos].is_digit(8) {
-                    num_str.push(self.input[self.pos]);
                     self.pos += 1;
                 }
-                return Some(Token::Num(i64::from_str_radix(&num_str[1..], 8).unwrap_or(0)));
+                let octal_str = self.input[octal_start..self.pos].iter().collect::<String>();
+                return Ok(Token::Num(i64::from_str_radix(&octal_str, 8).unwrap_or(0)));
             } else {
                 while self.pos < self.input.len() && self.input[self.pos].is_digit(10) {
-                    num_str.push(self.input[self.pos]);
                     self.pos += 1;
                 }
-                return Some(Token::Num(num_str.parse().unwrap_or(0)));
+                let num_str = self.input[start..self.pos].iter().collect::<String>();
+                return Ok(Token::Num(num_str.parse().unwrap_or(0)));
             }
         }
 
@@ -116,7 +127,7 @@ impl Lexer {
                     _ => {}
                 }
             }
-            return Some(Token::Op(op));
+            return Ok(Token::Op(op));
         }
 
         // String literal with escape sequences
@@ -126,7 +137,7 @@ impl Lexer {
                 if self.input[self.pos] == '\\' {
                     self.pos += 1;
                     if self.pos >= self.input.len() {
-                        return None;
+                        return Err(format!("Incomplete escape sequence at line {}", self.line));
                     }
                     match self.input[self.pos] {
                         'n' => s.push('\n'),
@@ -144,14 +155,14 @@ impl Lexer {
                 }
             }
             if self.pos >= self.input.len() {
-                return None;
+                return Err(format!("Unclosed string literal at line {}", self.line));
             }
             self.pos += 1;
-            return Some(Token::String(s));
+            return Ok(Token::String(s));
         }
 
         // Unknown character
-        None
+        Err(format!("Unexpected character '{}' at line {}", c, self.line))
     }
 }
 
@@ -161,108 +172,176 @@ mod tests {
 
     #[test]
     fn test_keywords() {
-        let mut lexer = Lexer::new("int if while return");
-        assert_eq!(lexer.next(), Some(Token::Keyword("int".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Keyword("if".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Keyword("while".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Keyword("return".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        let mut lexer = Lexer::new("int if while return char");
+        assert_eq!(lexer.next(), Ok(Token::Keyword("int".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Keyword("if".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Keyword("while".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Keyword("return".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Keyword("char".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_identifier() {
-        let mut lexer = Lexer::new("main x123");
-        assert_eq!(lexer.next(), Some(Token::Id("main".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Id("x123".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        let mut lexer = Lexer::new("main x123 printf");
+        assert_eq!(lexer.next(), Ok(Token::Id("main".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Id("x123".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Id("printf".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_number() {
         let mut lexer = Lexer::new("123 456");
-        assert_eq!(lexer.next(), Some(Token::Num(123)));
-        assert_eq!(lexer.next(), Some(Token::Num(456)));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::Num(123)));
+        assert_eq!(lexer.next(), Ok(Token::Num(456)));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_operators() {
         let mut lexer = Lexer::new("+ == &&");
-        assert_eq!(lexer.next(), Some(Token::Op("+".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("==".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("&&".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::Op("+".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("==".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("&&".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_string() {
         let mut lexer = Lexer::new("\"hello\"");
-        assert_eq!(lexer.next(), Some(Token::String("hello".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::String("hello".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_string_escape() {
         let mut lexer = Lexer::new("\"hello\\nworld\\\"\\\\\"");
-        assert_eq!(lexer.next(), Some(Token::String("hello\nworld\"\\".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::String("hello\nworld\"\\".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_additional_operators() {
         let mut lexer = Lexer::new("<= >= != < > | & ! ~");
-        assert_eq!(lexer.next(), Some(Token::Op("<=".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op(">=".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("!=".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("<".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op(">".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("|".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("&".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("!".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("~".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::Op("<=".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op(">=".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("!=".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("<".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op(">".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("|".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("&".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("!".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("~".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_invalid_string() {
         let mut lexer = Lexer::new("\"unclosed");
-        assert_eq!(lexer.next(), None);
+        assert!(lexer.next().is_err());
     }
 
     #[test]
     fn test_comment() {
         let mut lexer = Lexer::new("// comment\nint x");
-        assert_eq!(lexer.next(), Some(Token::Keyword("int".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Id("x".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::Keyword("int".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Id("x".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
         assert_eq!(lexer.line(), 2);
     }
 
     #[test]
     fn test_hex_number() {
         let mut lexer = Lexer::new("0xFF 0x123");
-        assert_eq!(lexer.next(), Some(Token::Num(255)));
-        assert_eq!(lexer.next(), Some(Token::Num(291)));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::Num(255)));
+        assert_eq!(lexer.next(), Ok(Token::Num(291)));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_octal_number() {
         let mut lexer = Lexer::new("077 0123");
-        assert_eq!(lexer.next(), Some(Token::Num(63)));
-        assert_eq!(lexer.next(), Some(Token::Num(83)));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::Num(63)));
+        assert_eq!(lexer.next(), Ok(Token::Num(83)));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
     }
 
     #[test]
     fn test_punctuation() {
         let mut lexer = Lexer::new("(){};,");
-        assert_eq!(lexer.next(), Some(Token::Op("(".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op(")".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("{".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op("}".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op(";".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Op(",".to_string())));
-        assert_eq!(lexer.next(), Some(Token::Eof));
+        assert_eq!(lexer.next(), Ok(Token::Op("(".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op(")".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("{".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op("}".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op(";".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Op(",".to_string())));
+        assert_eq!(lexer.next(), Ok(Token::Eof));
+    }
+
+    #[test]
+    fn test_invalid_character() {
+        let mut lexer = Lexer::new("@");
+        assert_eq!(lexer.next(), Err("Unexpected character '@' at line 1".to_string()));
+    }
+
+    #[test]
+    fn test_c4_snippet() {
+        let input = r#"
+        #include <stdio.h>
+        int main() {
+            char *p = "hello\n";
+            if (p != 0) {
+                printf("%s", p);
+                return 0xFF;
+            }
+            return 0;
+        }
+        "#;
+        let mut lexer = Lexer::new(input);
+        let expected = vec![
+            Token::Keyword("int".to_string()),
+            Token::Id("main".to_string()),
+            Token::Op("(".to_string()),
+            Token::Op(")".to_string()),
+            Token::Op("{".to_string()),
+            Token::Keyword("char".to_string()),
+            Token::Op("*".to_string()),
+            Token::Id("p".to_string()),
+            Token::Op("=".to_string()),
+            Token::String("hello\n".to_string()),
+            Token::Op(";".to_string()),
+            Token::Keyword("if".to_string()),
+            Token::Op("(".to_string()),
+            Token::Id("p".to_string()),
+            Token::Op("!=".to_string()),
+            Token::Num(0),
+            Token::Op(")".to_string()),
+            Token::Op("{".to_string()),
+            Token::Id("printf".to_string()),
+            Token::Op("(".to_string()),
+            Token::String("%s".to_string()),
+            Token::Op(",".to_string()),
+            Token::Id("p".to_string()),
+            Token::Op(")".to_string()),
+            Token::Op(";".to_string()),
+            Token::Keyword("return".to_string()),
+            Token::Num(255),
+            Token::Op(";".to_string()),
+            Token::Op("}".to_string()),
+            Token::Keyword("return".to_string()),
+            Token::Num(0),
+            Token::Op(";".to_string()),
+            Token::Op("}".to_string()),
+            Token::Eof,
+        ];
+        let mut tokens = Vec::new();
+        while let Ok(token) = lexer.next() {
+            tokens.push(token.clone());
+            if token == Token::Eof {
+                break;
+            }
+        }
+        assert_eq!(tokens, expected);
     }
 }
