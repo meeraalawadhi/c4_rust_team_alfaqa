@@ -1,1 +1,1 @@
-int main() { char *s = "hello\nworld"; if (x <= y && z != 0) return 0xFF; }
+{ x = 5; printf("%s", p); return 0; }

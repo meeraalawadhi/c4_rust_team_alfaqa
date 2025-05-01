@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["c4_rust",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/panic/unwind_safe/trait.RefUnwindSafe.html\" title=\"trait core::panic::unwind_safe::RefUnwindSafe\">RefUnwindSafe</a> for <a class=\"enum\" href=\"c4_rust/c4/enum.Expr.html\" title=\"enum c4_rust::c4::Expr\">Expr</a>",1,["c4_rust::c4::Expr"]],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/panic/unwind_safe/trait.RefUnwindSafe.html\" title=\"trait core::panic::unwind_safe::RefUnwindSafe\">RefUnwindSafe</a> for <a class=\"enum\" href=\"c4_rust/c4/enum.Stmt.html\" title=\"enum c4_rust::c4::Stmt\">Stmt</a>",1,["c4_rust::c4::Stmt"]],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/panic/unwind_safe/trait.RefUnwindSafe.html\" title=\"trait core::panic::unwind_safe::RefUnwindSafe\">RefUnwindSafe</a> for <a class=\"enum\" href=\"c4_rust/c4/enum.Token.html\" title=\"enum c4_rust::c4::Token\">Token</a>",1,["c4_rust::c4::Token"]],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/panic/unwind_safe/trait.RefUnwindSafe.html\" title=\"trait core::panic::unwind_safe::RefUnwindSafe\">RefUnwindSafe</a> for <a class=\"struct\" href=\"c4_rust/c4/struct.Lexer.html\" title=\"struct c4_rust::c4::Lexer\">Lexer</a>",1,["c4_rust::c4::Lexer"]],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.86.0/core/panic/unwind_safe/trait.RefUnwindSafe.html\" title=\"trait core::panic::unwind_safe::RefUnwindSafe\">RefUnwindSafe</a> for <a class=\"struct\" href=\"c4_rust/c4/struct.Parser.html\" title=\"struct c4_rust::c4::Parser\">Parser</a>",1,["c4_rust::c4::Parser"]]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1616]}

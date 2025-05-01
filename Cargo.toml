@@ -2,11 +2,15 @@
 name = "c4_rust"
 version = "0.1.0"
 edition = "2021"
-description = "Rust implementation of the C4 compiler"
-authors = ["Meera Al Wadhi <100058524@ku.ac.ae>", "Hamda <hamdahalm@hotmail.com>"]
+authors = ["Meera Alawadhi", "Hamda"]
+description = "A Rust implementation of the C4 compiler for lexing and parsing C-like code"
+repository = "https://github.com/meeraalawadhi/c4_rust_team_alfaqa"
+license = "MIT"
+keywords = ["compiler", "lexer", "parser", "c4", "rust"]
+categories = ["compilers", "parsing"]
 
 [dependencies]
-# Add dependencies if needed
+# No external dependencies required
 
 [dev-dependencies]
-# For testing
+# No additional dev dependencies required for tests

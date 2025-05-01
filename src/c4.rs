@@ -869,4 +869,79 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Expected '}' at end of block at line 1");
     }
+
+    //Integration  Tests
+    #[test]
+    fn test_integration_block() {
+        let input = r#"
+        {
+            x = 5;
+            printf("%s", p);
+            return 0;
+        }
+        "#;
+        let mut parser = Parser::new(input);
+        let stmts = parser.parse_block().unwrap();
+        assert_eq!(
+            stmts,
+            vec![
+                Stmt::Assign("x".to_string(), Expr::Num(5)),
+                Stmt::Expr(Expr::Call(
+                    "printf".to_string(),
+                    vec![
+                        Expr::String("%s".to_string()),
+                        Expr::Var("p".to_string())
+                    ]
+                )),
+                Stmt::Return(Expr::Num(0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_integration_if_else() {
+        let input = r#"
+        if (x) {
+            return 5;
+        } else {
+            return 0;
+        }
+        "#;
+        let mut parser = Parser::new(input);
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::If(
+                Expr::Var("x".to_string()),
+                vec![Stmt::Return(Expr::Num(5))],
+                Some(vec![Stmt::Return(Expr::Num(0))])
+            )
+        );
+    }
+
+    #[test]
+    fn test_integration_while() {
+        let input = r#"
+        while (x) {
+            x = x + 1;
+        }
+        "#;
+        let mut parser = Parser::new(input);
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::While(
+                Expr::Var("x".to_string()),
+                vec![Stmt::Assign(
+                    "x".to_string(),
+                    Expr::BinOp(
+                        Box::new(Expr::Var("x".to_string())),
+                        "+".to_string(),
+                        Box::new(Expr::Num(1))
+                    )
+                )]
+            )
+        );
+    }
+
 }
