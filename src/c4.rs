@@ -174,6 +174,8 @@ pub enum Expr {
     Var(String), // New: Variables (e.g., x, p)
     Call(String, Vec<Expr>), // New: Function calls (e.g., printf("%s", p))
     UnaryOp(String, Box<Expr>),
+    String(String), // New: String literals
+    UnaryOp(String, Box<Expr>), // New: Unary operators (!, -)
     BinOp(Box<Expr>, String, Box<Expr>),
 }
 
@@ -277,6 +279,7 @@ impl Parser {
                     _ => Err(format!("Expected ')' at line {}", self.lexer.line())),
                 }
             }
+
             _ => Err(format!("Expected number, string, identifier, unary operator, or '(' at line {}", self.lexer.line())),
         }
     }
@@ -297,7 +300,8 @@ impl Parser {
                 break;
             }
             self.advance()?;
-            args.push(self.parse_expr()?);
+            args.push(self.parse_expr()?)
+            _ => Err(format!("Expected number, string, unary operator, or '(' at line {}", self.lexer.line())),
         }
         Ok(args)
     }
@@ -538,6 +542,10 @@ mod tests {
         let mut parser = Parser::new("-x");
         let expr = parser.parse_expr().unwrap();
         assert_eq!(expr, Expr::UnaryOp("-".to_string(), Box::new(Expr::Var("x".to_string()))));
+    fn test_parse_unary_minus() {
+        let mut parser = Parser::new("-5");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(expr, Expr::UnaryOp("-".to_string(), Box::new(Expr::Num(5))));
     }
 
     #[test]
@@ -566,6 +574,18 @@ mod tests {
                     )),
                     "*".to_string(),
                     Box::new(Expr::Num(2))
+
+    fn test_parse_unary_complex() {
+        let mut parser = Parser::new("-(2 + 3)");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp(
+                "-".to_string(),
+                Box::new(Expr::BinOp(
+                    Box::new(Expr::Num(2)),
+                    "+".to_string(),
+                    Box::new(Expr::Num(3))
                 ))
             )
         );
@@ -602,7 +622,7 @@ mod tests {
             )
         );
     }
-
+                  
     #[test]
     fn test_parse_parentheses() {
         let mut parser = Parser::new("(x + y) * 3");
