@@ -22,7 +22,7 @@ pub struct Lexer {
 impl Lexer {
     pub fn new(input: &str) -> Self {
         let mut keywords = HashMap::new();
-        for kw in ["int", "if", "while", "return", "char"].iter() {
+        for kw in ["int", "if", "while", "return", "char","else"].iter() {
             keywords.insert(kw.to_string(), Token::Keyword(kw.to_string()));
         }
         Lexer {
@@ -171,12 +171,19 @@ impl Lexer {
 pub enum Expr {
     Num(i64),
     String(String),
-    Var(String), // New: Variables (e.g., x, p)
-    Call(String, Vec<Expr>), // New: Function calls (e.g., printf("%s", p))
+    Var(String),
+    Call(String, Vec<Expr>),
     UnaryOp(String, Box<Expr>),
-    String(String), // New: String literals
-    UnaryOp(String, Box<Expr>), // New: Unary operators (!, -)
     BinOp(Box<Expr>, String, Box<Expr>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Stmt {
+    Expr(Expr),
+    Assign(String, Expr),
+    Return(Expr),
+    If(Expr, Vec<Stmt>, Option<Vec<Stmt>>),
+    While(Expr, Vec<Stmt>),
 }
 
 pub struct Parser {
@@ -197,6 +204,139 @@ impl Parser {
     fn advance(&mut self) -> Result<(), String> {
         self.current_token = self.lexer.next();
         Ok(())
+    }
+
+    pub fn parse_block(&mut self) -> Result<Vec<Stmt>, String> {
+        let mut stmts = Vec::new();
+        let mut expect_closing_brace = false;
+    
+        if let Ok(Token::Op(op)) = &self.current_token {
+            if op == "{" {
+                expect_closing_brace = true;
+                self.advance()?;
+            }
+        }
+    
+        while let Ok(token) = &self.current_token {
+            match token {
+                Token::Op(op) if op == "}" => {
+                    if !expect_closing_brace {
+                        return Err(format!("Unexpected '}}' at line {}", self.lexer.line()));
+                    }
+                    self.advance()?;
+                    break;
+                }
+                Token::Eof => {
+                    if expect_closing_brace {
+                        return Err(format!("Expected '}}' at end of block at line {}", self.lexer.line()));
+                    }
+                    break;
+                }
+                _ => stmts.push(self.parse_stmt()?),
+            }
+        }
+    
+        Ok(stmts)
+    }
+
+    pub fn parse_stmt(&mut self) -> Result<Stmt, String> {
+        match self.current_token.clone() {
+            Ok(Token::Keyword(kw)) if kw == "if" => {
+                self.advance()?;
+                if let Ok(Token::Op(op)) = &self.current_token {
+                    if op != "(" {
+                        return Err(format!("Expected '(' after 'if' at line {}", self.lexer.line()));
+                    }
+                } else {
+                    return Err(format!("Expected '(' after 'if' at line {}", self.lexer.line()));
+                }
+                self.advance()?;
+                let cond = self.parse_expr()?;
+                if let Ok(Token::Op(op)) = &self.current_token {
+                    if op != ")" {
+                        return Err(format!("Expected ')' after if condition at line {}", self.lexer.line()));
+                    }
+                } else {
+                    return Err(format!("Expected ')' after if condition at line {}", self.lexer.line()));
+                }
+                self.advance()?;
+                let then_block = self.parse_block()?;
+                let else_block = if let Ok(Token::Keyword(kw)) = &self.current_token {
+                    if kw == "else" {
+                        self.advance()?;
+                        Some(self.parse_block()?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                Ok(Stmt::If(cond, then_block, else_block))
+            }
+            Ok(Token::Keyword(kw)) if kw == "while" => {
+                self.advance()?;
+                if let Ok(Token::Op(op)) = &self.current_token {
+                    if op != "(" {
+                        return Err(format!("Expected '(' after 'while' at line {}", self.lexer.line()));
+                    }
+                } else {
+                    return Err(format!("Expected '(' after 'while' at line {}", self.lexer.line()));
+                }
+                self.advance()?;
+                let cond = self.parse_expr()?;
+                if let Ok(Token::Op(op)) = &self.current_token {
+                    if op != ")" {
+                        return Err(format!("Expected ')' after while condition at line {}", self.lexer.line()));
+                    }
+                } else {
+                    return Err(format!("Expected ')' after while condition at line {}", self.lexer.line()));
+                }
+                self.advance()?;
+                let block = self.parse_block()?;
+                Ok(Stmt::While(cond, block))
+            }
+            Ok(Token::Keyword(kw)) if kw == "return" => {
+                self.advance()?;
+                let expr = self.parse_expr()?;
+                if let Ok(Token::Op(op)) = &self.current_token {
+                    if op != ";" {
+                        return Err(format!("Expected ';' after return at line {}", self.lexer.line()));
+                    }
+                } else {
+                    return Err(format!("Expected ';' after return at line {}", self.lexer.line()));
+                }
+                self.advance()?;
+                Ok(Stmt::Return(expr))
+            }
+            _ => {
+                let expr = self.parse_expr()?;
+                if let Ok(Token::Op(op)) = &self.current_token {
+                    if op == ";" {
+                        self.advance()?;
+                        Ok(Stmt::Expr(expr))
+                    } else if op == "=" {
+                        self.advance()?;
+                        let rhs = self.parse_expr()?;
+                        if let Ok(Token::Op(op)) = &self.current_token {
+                            if op != ";" {
+                                return Err(format!("Expected ';' after assignment at line {}", self.lexer.line()));
+                            }
+                        } else {
+                            return Err(format!("Expected ';' after assignment at line {}", self.lexer.line()));
+                        }
+                        self.advance()?;
+                        match expr {
+                            Expr::Var(id) => Ok(Stmt::Assign(id, rhs)),
+                            _ => Err(format!("Expected variable for assignment at line {}", self.lexer.line())),
+                        }
+                    } else {
+                        Err(format!("Expected '=' or ';' after expression at line {}", self.lexer.line()))
+                    }
+                } else {
+                    Err(format!("Expected '=' or ';' after expression at line {}", self.lexer.line()))
+                }
+            }
+        }
     }
 
     pub fn parse_expr(&mut self) -> Result<Expr, String> {
@@ -228,7 +368,6 @@ impl Parser {
     }
 
     fn parse_factor(&mut self) -> Result<Expr, String> {
-        // Handle unary operators
         if let Ok(Token::Op(op)) = &self.current_token {
             if op == "!" || op == "-" {
                 let op = op.clone();
@@ -249,7 +388,6 @@ impl Parser {
             }
             Ok(Token::Id(id)) => {
                 self.advance()?;
-                // Check for function call (e.g., printf(...))
                 if let Ok(Token::Op(op)) = &self.current_token {
                     if op == "(" {
                         self.advance()?;
@@ -279,29 +417,24 @@ impl Parser {
                     _ => Err(format!("Expected ')' at line {}", self.lexer.line())),
                 }
             }
-
             _ => Err(format!("Expected number, string, identifier, unary operator, or '(' at line {}", self.lexer.line())),
         }
     }
 
     fn parse_args(&mut self) -> Result<Vec<Expr>, String> {
         let mut args = Vec::new();
-        // Handle empty argument list
         if let Ok(Token::Op(op)) = &self.current_token {
             if op == ")" {
                 return Ok(args);
             }
         }
-        // Parse first argument
         args.push(self.parse_expr()?);
-        // Parse additional arguments
         while let Ok(Token::Op(op)) = &self.current_token {
             if op != "," {
                 break;
             }
             self.advance()?;
-            args.push(self.parse_expr()?)
-            _ => Err(format!("Expected number, string, unary operator, or '(' at line {}", self.lexer.line())),
+            args.push(self.parse_expr()?);
         }
         Ok(args)
     }
@@ -542,10 +675,6 @@ mod tests {
         let mut parser = Parser::new("-x");
         let expr = parser.parse_expr().unwrap();
         assert_eq!(expr, Expr::UnaryOp("-".to_string(), Box::new(Expr::Var("x".to_string()))));
-    fn test_parse_unary_minus() {
-        let mut parser = Parser::new("-5");
-        let expr = parser.parse_expr().unwrap();
-        assert_eq!(expr, Expr::UnaryOp("-".to_string(), Box::new(Expr::Num(5))));
     }
 
     #[test]
@@ -574,18 +703,6 @@ mod tests {
                     )),
                     "*".to_string(),
                     Box::new(Expr::Num(2))
-
-    fn test_parse_unary_complex() {
-        let mut parser = Parser::new("-(2 + 3)");
-        let expr = parser.parse_expr().unwrap();
-        assert_eq!(
-            expr,
-            Expr::UnaryOp(
-                "-".to_string(),
-                Box::new(Expr::BinOp(
-                    Box::new(Expr::Num(2)),
-                    "+".to_string(),
-                    Box::new(Expr::Num(3))
                 ))
             )
         );
@@ -622,7 +739,7 @@ mod tests {
             )
         );
     }
-                  
+
     #[test]
     fn test_parse_parentheses() {
         let mut parser = Parser::new("(x + y) * 3");
@@ -642,9 +759,114 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_expr_stmt() {
+        let mut parser = Parser::new("printf(\"%s\", p);");
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::Expr(Expr::Call(
+                "printf".to_string(),
+                vec![
+                    Expr::String("%s".to_string()),
+                    Expr::Var("p".to_string())
+                ]
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_assign_stmt() {
+        let mut parser = Parser::new("x = 5;");
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::Assign("x".to_string(), Expr::Num(5))
+        );
+    }
+
+    #[test]
+    fn test_parse_return_stmt() {
+        let mut parser = Parser::new("return 0;");
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::Return(Expr::Num(0))
+        );
+    }
+
+    #[test]
+    fn test_parse_if_stmt() {
+        let mut parser = Parser::new("if (x) { return 5; }");
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::If(
+                Expr::Var("x".to_string()),
+                vec![Stmt::Return(Expr::Num(5))],
+                None
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_if_else_stmt() {
+        let mut parser = Parser::new("if (x) { return 5; } else { return 0; }");
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::If(
+                Expr::Var("x".to_string()),
+                vec![Stmt::Return(Expr::Num(5))],
+                Some(vec![Stmt::Return(Expr::Num(0))])
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_while_stmt() {
+        let mut parser = Parser::new("while (x) { x = x + 1; }");
+        let stmt = parser.parse_stmt().unwrap();
+        assert_eq!(
+            stmt,
+            Stmt::While(
+                Expr::Var("x".to_string()),
+                vec![Stmt::Assign(
+                    "x".to_string(),
+                    Expr::BinOp(
+                        Box::new(Expr::Var("x".to_string())),
+                        "+".to_string(),
+                        Box::new(Expr::Num(1))
+                    )
+                )]
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_block() {
+        let mut parser = Parser::new("{ x = 5; printf(\"%s\", p); return 0; }");
+        let stmts = parser.parse_block().unwrap();
+        assert_eq!(
+            stmts,
+            vec![
+                Stmt::Assign("x".to_string(), Expr::Num(5)),
+                Stmt::Expr(Expr::Call(
+                    "printf".to_string(),
+                    vec![
+                        Expr::String("%s".to_string()),
+                        Expr::Var("p".to_string())
+                    ]
+                )),
+                Stmt::Return(Expr::Num(0))
+            ]
+        );
+    }
+
+    #[test]
     fn test_parse_error() {
-        let mut parser = Parser::new("printf(");
-        let result = parser.parse_expr();
+        let mut parser = Parser::new("if (x) { return 5; ");
+        let result = parser.parse_stmt();
         assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Expected '}' at end of block at line 1");
     }
 }
