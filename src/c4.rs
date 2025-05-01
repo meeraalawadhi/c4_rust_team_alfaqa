@@ -170,6 +170,10 @@ impl Lexer {
 #[derive(Debug, PartialEq)]
 pub enum Expr {
     Num(i64),
+    String(String),
+    Var(String), // New: Variables (e.g., x, p)
+    Call(String, Vec<Expr>), // New: Function calls (e.g., printf("%s", p))
+    UnaryOp(String, Box<Expr>),
     String(String), // New: String literals
     UnaryOp(String, Box<Expr>), // New: Unary operators (!, -)
     BinOp(Box<Expr>, String, Box<Expr>),
@@ -243,6 +247,27 @@ impl Parser {
                 self.advance()?;
                 Ok(Expr::String(s))
             }
+            Ok(Token::Id(id)) => {
+                self.advance()?;
+                // Check for function call (e.g., printf(...))
+                if let Ok(Token::Op(op)) = &self.current_token {
+                    if op == "(" {
+                        self.advance()?;
+                        let args = self.parse_args()?;
+                        match &self.current_token {
+                            Ok(Token::Op(op)) if op == ")" => {
+                                self.advance()?;
+                                Ok(Expr::Call(id, args))
+                            }
+                            _ => Err(format!("Expected ')' at line {}", self.lexer.line())),
+                        }
+                    } else {
+                        Ok(Expr::Var(id))
+                    }
+                } else {
+                    Ok(Expr::Var(id))
+                }
+            }
             Ok(Token::Op(op)) if op == "(" => {
                 self.advance()?;
                 let expr = self.parse_expr()?;
@@ -254,8 +279,31 @@ impl Parser {
                     _ => Err(format!("Expected ')' at line {}", self.lexer.line())),
                 }
             }
+
+            _ => Err(format!("Expected number, string, identifier, unary operator, or '(' at line {}", self.lexer.line())),
+        }
+    }
+
+    fn parse_args(&mut self) -> Result<Vec<Expr>, String> {
+        let mut args = Vec::new();
+        // Handle empty argument list
+        if let Ok(Token::Op(op)) = &self.current_token {
+            if op == ")" {
+                return Ok(args);
+            }
+        }
+        // Parse first argument
+        args.push(self.parse_expr()?);
+        // Parse additional arguments
+        while let Ok(Token::Op(op)) = &self.current_token {
+            if op != "," {
+                break;
+            }
+            self.advance()?;
+            args.push(self.parse_expr()?)
             _ => Err(format!("Expected number, string, unary operator, or '(' at line {}", self.lexer.line())),
         }
+        Ok(args)
     }
 }
 
@@ -467,6 +515,33 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_variable() {
+        let mut parser = Parser::new("x");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(expr, Expr::Var("x".to_string()));
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let mut parser = Parser::new("printf(\"%s\", p)");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(
+            expr,
+            Expr::Call(
+                "printf".to_string(),
+                vec![
+                    Expr::String("%s".to_string()),
+                    Expr::Var("p".to_string())
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_unary_minus() {
+        let mut parser = Parser::new("-x");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(expr, Expr::UnaryOp("-".to_string(), Box::new(Expr::Var("x".to_string()))));
     fn test_parse_unary_minus() {
         let mut parser = Parser::new("-5");
         let expr = parser.parse_expr().unwrap();
@@ -481,6 +556,25 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_complex() {
+        let mut parser = Parser::new("x + printf(\"%s\", p) * 2");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp(
+                Box::new(Expr::Var("x".to_string())),
+                "+".to_string(),
+                Box::new(Expr::BinOp(
+                    Box::new(Expr::Call(
+                        "printf".to_string(),
+                        vec![
+                            Expr::String("%s".to_string()),
+                            Expr::Var("p".to_string())
+                        ]
+                    )),
+                    "*".to_string(),
+                    Box::new(Expr::Num(2))
+
     fn test_parse_unary_complex() {
         let mut parser = Parser::new("-(2 + 3)");
         let expr = parser.parse_expr().unwrap();
@@ -499,31 +593,58 @@ mod tests {
 
     #[test]
     fn test_parse_addition() {
-        let mut parser = Parser::new("1 + 2");
+        let mut parser = Parser::new("x + y");
         let expr = parser.parse_expr().unwrap();
         assert_eq!(
             expr,
-            Expr::BinOp(Box::new(Expr::Num(1)), "+".to_string(), Box::new(Expr::Num(2)))
+            Expr::BinOp(
+                Box::new(Expr::Var("x".to_string())),
+                "+".to_string(),
+                Box::new(Expr::Var("y".to_string()))
+            )
         );
     }
 
     #[test]
     fn test_parse_precedence() {
-        let mut parser = Parser::new("1 + 2 * 3");
+        let mut parser = Parser::new("x + y * 3");
         let expr = parser.parse_expr().unwrap();
         assert_eq!(
             expr,
             Expr::BinOp(
-                Box::new(Expr::Num(1)),
+                Box::new(Expr::Var("x".to_string())),
                 "+".to_string(),
                 Box::new(Expr::BinOp(
-                    Box::new(Expr::Num(2)),
+                    Box::new(Expr::Var("y".to_string())),
                     "*".to_string(),
                     Box::new(Expr::Num(3))
                 ))
             )
         );
     }
+                  
+    #[test]
+    fn test_parse_parentheses() {
+        let mut parser = Parser::new("(x + y) * 3");
+        let expr = parser.parse_expr().unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinOp(
+                Box::new(Expr::BinOp(
+                    Box::new(Expr::Var("x".to_string())),
+                    "+".to_string(),
+                    Box::new(Expr::Var("y".to_string()))
+                )),
+                "*".to_string(),
+                Box::new(Expr::Num(3))
+            )
+        );
+    }
 
-    
+    #[test]
+    fn test_parse_error() {
+        let mut parser = Parser::new("printf(");
+        let result = parser.parse_expr();
+        assert!(result.is_err());
+    }
 }
